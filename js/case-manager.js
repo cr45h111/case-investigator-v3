@@ -63,6 +63,8 @@ const CaseManager = (() => {
     const caseRecord = {
       id,
       desc,
+      notes: document.getElementById('detective-notes').value || '',
+      conclusion: document.getElementById('case-conclusion').value || '',
       detectiveName: DB.Prefs.get('empName'),
       detectiveId:   detectiveId,
       startedAt:     new Date().toISOString(),
@@ -220,6 +222,9 @@ const CaseManager = (() => {
       if (rec) {
         rec.status   = 'solved';
         rec.solvedAt = new Date().toISOString();
+        // Save latest notes/conclusion to the case record
+        rec.notes = document.getElementById('detective-notes').value || '';
+        rec.conclusion = document.getElementById('case-conclusion').value || '';
         localStorage.setItem('userCases', JSON.stringify(userCases));
       }
       // Mark suspects as closed (handled in suspects-db.js per user)
@@ -261,6 +266,33 @@ const CaseManager = (() => {
 
   // ── Init ──────────────────────────────────────
   function init() {
+        // Save notes/conclusion on blur (auto-save)
+        document.getElementById('detective-notes').addEventListener('blur', () => {
+          const detectiveId = DB.Prefs.get('empId');
+          const caseId = DB.Prefs.get('activeCaseId');
+          if (!detectiveId || !caseId) return;
+          let userCases = {};
+          try { userCases = JSON.parse(localStorage.getItem('userCases') || '{}'); } catch {}
+          const userCasesArr = userCases[detectiveId] || [];
+          const rec = userCasesArr.find(c => c.id === caseId);
+          if (rec) {
+            rec.notes = document.getElementById('detective-notes').value || '';
+            localStorage.setItem('userCases', JSON.stringify(userCases));
+          }
+        });
+        document.getElementById('case-conclusion').addEventListener('blur', () => {
+          const detectiveId = DB.Prefs.get('empId');
+          const caseId = DB.Prefs.get('activeCaseId');
+          if (!detectiveId || !caseId) return;
+          let userCases = {};
+          try { userCases = JSON.parse(localStorage.getItem('userCases') || '{}'); } catch {}
+          const userCasesArr = userCases[detectiveId] || [];
+          const rec = userCasesArr.find(c => c.id === caseId);
+          if (rec) {
+            rec.conclusion = document.getElementById('case-conclusion').value || '';
+            localStorage.setItem('userCases', JSON.stringify(userCases));
+          }
+        });
     document.getElementById('start-case').addEventListener('click', startCase);
     document.getElementById('save-case').addEventListener('click',  saveCase);
     document.getElementById('load-case').addEventListener('click',  loadCase);
