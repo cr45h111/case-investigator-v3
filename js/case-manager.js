@@ -56,6 +56,10 @@ const CaseManager = (() => {
     }
 
     // Save case to IDB, key by user
+    // Save cases per user in localStorage
+    let userCases = {};
+    try { userCases = JSON.parse(localStorage.getItem('userCases') || '{}'); } catch {}
+    if (!userCases[detectiveId]) userCases[detectiveId] = [];
     const caseRecord = {
       id,
       desc,
@@ -65,6 +69,8 @@ const CaseManager = (() => {
       status:        'open',
       owner:         detectiveId
     };
+    userCases[detectiveId].push(caseRecord);
+    localStorage.setItem('userCases', JSON.stringify(userCases));
     await DB.put('cases', caseRecord);
 
     alert(`✅ Investigation ${id} started!`);
@@ -103,43 +109,41 @@ const CaseManager = (() => {
       alert('You must be logged in to load a case.');
       return;
     }
-    const input    = document.createElement('input');
-    input.type     = 'file';
-    input.accept   = 'application/json';
-    input.onchange = async e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        // Only allow loading if owner matches
-        if (data.detectiveId && data.detectiveId !== detectiveId) {
-          alert('This case does not belong to your profile.');
-          return;
-        }
-        document.getElementById('case-desc').value        = data.caseDesc    || '';
-        document.getElementById('detective-notes').value  = data.notes       || '';
-        document.getElementById('case-conclusion').value  = data.conclusion  || '';
-        document.getElementById('active-case-id').textContent = data.caseId || '--';
-        DB.Prefs.set('activeCaseId', data.caseId || '');
-
-        // Restore suspects
-        await DB.clear('suspects');
-        for (const s of (data.suspects || [])) await DB.put('suspects', s);
-
-        // Restore witnesses
-        await DB.clear('witnesses');
-        for (const w of (data.witnesses || [])) await DB.put('witnesses', w);
-
-        await SuspectDB.renderMiniCards();
-        await SuspectDB.updateGuiltMeters();
-
-        alert(`✅ Case ${data.caseId} loaded.`);
-      } catch (err) {
-        alert('Failed to load case file: ' + err.message);
-      }
+    // Load cases for this user
+    let userCases = {};
+    try { userCases = JSON.parse(localStorage.getItem('userCases') || '{}'); } catch {}
+    const cases = userCases[detectiveId] || [];
+    if (!cases.length) {
+      alert('No cases found for your profile.');
+      return;
+    }
+    // Show a simple selector for cases
+    const selector = document.createElement('select');
+    selector.style.margin = '12px';
+    cases.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.id} - ${c.desc.substring(0, 40)}`;
+      selector.appendChild(opt);
+    });
+    const confirmBtn = document.createElement('button');
+    confirmBtn.textContent = 'Load Selected Case';
+    confirmBtn.style.margin = '12px';
+    confirmBtn.onclick = async () => {
+      const selectedId = selector.value;
+      const data = cases.find(c => c.id === selectedId);
+      if (!data) { alert('Case not found.'); return; }
+      document.getElementById('case-desc').value        = data.desc    || '';
+      document.getElementById('detective-notes').value  = data.notes       || '';
+      document.getElementById('case-conclusion').value  = data.conclusion  || '';
+      document.getElementById('active-case-id').textContent = data.id || '--';
+      DB.Prefs.set('activeCaseId', data.id || '');
+      alert(`✅ Case ${data.id} loaded.`);
+      selector.remove();
+      confirmBtn.remove();
     };
-    input.click();
+    document.body.appendChild(selector);
+    document.body.appendChild(confirmBtn);
   }
 
   // ── View Case Report modal ────────────────────

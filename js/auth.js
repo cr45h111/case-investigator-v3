@@ -111,39 +111,50 @@ const Auth = (() => {
         return;
       }
 
-      // Check if this user already exists
-      const storedName = DB.Prefs.get('empName');
-      const storedPassword = DB.Prefs.get('empPassword');
-      const storedPhoto = DB.Prefs.get('empPhoto');
-      let id = DB.Prefs.get('empId');
+      // Load user map from localStorage
+      let userMap = {};
+      try { userMap = JSON.parse(localStorage.getItem('userMap') || '{}'); } catch {}
+      let user = userMap[name];
 
-      if (storedName && storedPassword) {
+      if (user) {
         // User exists, check credentials
-        if (name !== storedName || password !== storedPassword) {
+        if (user.password !== password) {
           alert('Incorrect name or password.');
           return;
         }
-        // Credentials match, proceed
+        // Credentials match, set session
+        DB.Prefs.set('empId', user.id);
+        DB.Prefs.set('empName', name);
+        DB.Prefs.set('empPassword', password);
+        DB.Prefs.set('empPhoto', user.photo || '');
         showApp();
       } else {
         // New user registration
-        id = generateId();
-        DB.Prefs.set('empId', id);
-        DB.Prefs.set('empName', name);
-        DB.Prefs.set('empPassword', password);
-        // Photo: only update if a new file was chosen
+        const id = generateId();
+        let photoData = '';
         if (photoInput.files && photoInput.files[0]) {
           const reader = new FileReader();
           reader.onload = evt => {
-            DB.Prefs.set('empPhoto', evt.target.result);
+            photoData = evt.target.result;
+            userMap[name] = { id, password, photo: photoData };
+            localStorage.setItem('userMap', JSON.stringify(userMap));
+            DB.Prefs.set('empId', id);
+            DB.Prefs.set('empName', name);
+            DB.Prefs.set('empPassword', password);
+            DB.Prefs.set('empPhoto', photoData);
             showApp();
           };
           reader.readAsDataURL(photoInput.files[0]);
-        } else {
-          // No photo uploaded
-          DB.Prefs.set('empPhoto', '');
-          showApp();
+          return;
         }
+        // No photo uploaded
+        userMap[name] = { id, password, photo: '' };
+        localStorage.setItem('userMap', JSON.stringify(userMap));
+        DB.Prefs.set('empId', id);
+        DB.Prefs.set('empName', name);
+        DB.Prefs.set('empPassword', password);
+        DB.Prefs.set('empPhoto', '');
+        showApp();
       }
     });
 
