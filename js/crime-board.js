@@ -296,11 +296,29 @@ const CrimeBoard = (() => {
     const serializable = items.map(i => ({
       id: i.id, type: i.type, url: i.url, label: i.label, x: i.x, y: i.y
     }));
+    // Save per-user board state
+    const userId = DB.Prefs.get('empId');
+    if (userId) {
+      let userBoards = {};
+      try { userBoards = JSON.parse(localStorage.getItem('userBoards') || '{}'); } catch {}
+      userBoards[userId] = { items: serializable, connections };
+      localStorage.setItem('userBoards', JSON.stringify(userBoards));
+    }
     await DB.put('boardItems', { id: 'state', items: serializable, connections });
   }
 
   async function loadState() {
-    const state = await DB.get('boardItems', 'state');
+    // Load per-user board state
+    const userId = DB.Prefs.get('empId');
+    let state = null;
+    if (userId) {
+      let userBoards = {};
+      try { userBoards = JSON.parse(localStorage.getItem('userBoards') || '{}'); } catch {}
+      state = userBoards[userId] || null;
+    }
+    if (!state) {
+      state = await DB.get('boardItems', 'state');
+    }
     if (!state) return;
     (state.items || []).forEach(item => {
       items.push(item);
