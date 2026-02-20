@@ -72,6 +72,9 @@ const Auth = (() => {
     document.getElementById('login-name').value     = '';
     document.getElementById('login-password').value = '';
     document.getElementById('login-photo-preview').innerHTML = '';
+    // Clear file input (photo)
+    const photoInput = document.getElementById('login-photo');
+    if (photoInput) photoInput.value = '';
   }
 
   // ── Check if already logged in ────────────────

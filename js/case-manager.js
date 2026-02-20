@@ -16,6 +16,11 @@ const CaseManager = (() => {
     if (!desc) { alert('Please describe the case first.'); return; }
 
     const id = uid();
+    const detectiveId = DB.Prefs.get('empId');
+    if (!detectiveId) {
+      alert('You must be logged in to start a case.');
+      return;
+    }
     DB.Prefs.set('activeCaseId', id);
 
     // Update score card
@@ -50,14 +55,15 @@ const CaseManager = (() => {
       Interrogation.addThought('📋 Case started. Add your Anthropic API key above for AI-powered analysis.');
     }
 
-    // Save case to IDB
+    // Save case to IDB, key by user
     const caseRecord = {
       id,
       desc,
       detectiveName: DB.Prefs.get('empName'),
-      detectiveId:   DB.Prefs.get('empId'),
+      detectiveId:   detectiveId,
       startedAt:     new Date().toISOString(),
-      status:        'open'
+      status:        'open',
+      owner:         detectiveId
     };
     await DB.put('cases', caseRecord);
 
@@ -91,6 +97,12 @@ const CaseManager = (() => {
 
   // ── Load case file ────────────────────────────
   async function loadCase() {
+    // Only allow loading cases for the logged-in user
+    const detectiveId = DB.Prefs.get('empId');
+    if (!detectiveId) {
+      alert('You must be logged in to load a case.');
+      return;
+    }
     const input    = document.createElement('input');
     input.type     = 'file';
     input.accept   = 'application/json';
@@ -100,7 +112,11 @@ const CaseManager = (() => {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-
+        // Only allow loading if owner matches
+        if (data.detectiveId && data.detectiveId !== detectiveId) {
+          alert('This case does not belong to your profile.');
+          return;
+        }
         document.getElementById('case-desc').value        = data.caseDesc    || '';
         document.getElementById('detective-notes').value  = data.notes       || '';
         document.getElementById('case-conclusion').value  = data.conclusion  || '';
