@@ -24,7 +24,11 @@ const SuspectDB = (() => {
 
   // ── Render mini cards in main page ───────────
   async function renderMiniCards() {
-    const suspects = await DB.getAll('suspects');
+    // Load suspects for current user
+    const userId = DB.Prefs.get('empId');
+    let userSuspects = {};
+    try { userSuspects = JSON.parse(localStorage.getItem('userSuspects') || '{}'); } catch {}
+    const suspects = userId && userSuspects[userId] ? userSuspects[userId] : [];
     const list = document.getElementById('suspect-list');
     if (!list) return;
     list.innerHTML = '';
@@ -114,7 +118,13 @@ const SuspectDB = (() => {
       subject.aiProfile = raw;
     }
 
-    await DB.put('suspects', subject);
+    // Save subject for current user
+    const userId = DB.Prefs.get('empId');
+    let userSuspects = {};
+    try { userSuspects = JSON.parse(localStorage.getItem('userSuspects') || '{}'); } catch {}
+    if (!userSuspects[userId]) userSuspects[userId] = [];
+    userSuspects[userId].push(subject);
+    localStorage.setItem('userSuspects', JSON.stringify(userSuspects));
     alert(`✅ "${name}" saved to database.`);
     closeAdd();
     await renderMiniCards();
@@ -130,7 +140,11 @@ const SuspectDB = (() => {
   }
 
   async function loadTab(filter) {
-    const all     = await DB.getAll('suspects');
+    // Load suspects for current user
+    const userId = DB.Prefs.get('empId');
+    let userSuspects = {};
+    try { userSuspects = JSON.parse(localStorage.getItem('userSuspects') || '{}'); } catch {}
+    const all = userId && userSuspects[userId] ? userSuspects[userId] : [];
     const content = document.getElementById('database-content');
     if (!content) return;
 
@@ -191,7 +205,11 @@ const SuspectDB = (() => {
 
   // ── Open Subject Detail modal ─────────────────
   async function openDetail(id) {
-    const s = await DB.get('suspects', id);
+    // Load suspect for current user
+    const userId = DB.Prefs.get('empId');
+    let userSuspects = {};
+    try { userSuspects = JSON.parse(localStorage.getItem('userSuspects') || '{}'); } catch {}
+    const s = userId && userSuspects[userId] ? userSuspects[userId].find(sub => sub.id === id) : null;
     if (!s) return;
 
     document.getElementById('detail-name').textContent = s.name;
