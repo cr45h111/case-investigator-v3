@@ -110,7 +110,7 @@ const CaseManager = (() => {
       alert('You must be logged in to load a case.');
       return;
     }
-    // Load cases for this user
+    // Load cases for this user only
     let userCases = {};
     try { userCases = JSON.parse(localStorage.getItem('userCases') || '{}'); } catch {}
     const cases = userCases[detectiveId] || [];
@@ -122,10 +122,13 @@ const CaseManager = (() => {
     const selector = document.createElement('select');
     selector.style.margin = '12px';
     cases.forEach(c => {
-      const opt = document.createElement('option');
-      opt.value = c.id;
-      opt.textContent = `${c.id} - ${c.desc.substring(0, 40)}`;
-      selector.appendChild(opt);
+      // Only show cases owned by this user (extra check)
+      if (c.owner === detectiveId) {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = `${c.id} - ${c.desc.substring(0, 40)}`;
+        selector.appendChild(opt);
+      }
     });
     const confirmBtn = document.createElement('button');
     confirmBtn.textContent = 'Load Selected Case';
@@ -135,8 +138,9 @@ const CaseManager = (() => {
       let userCases = {};
       try { userCases = JSON.parse(localStorage.getItem('userCases') || '{}'); } catch {}
       const userCasesArr = userCases[detectiveId] || [];
-      const data = userCasesArr.find(c => c.id === selectedId);
-      if (!data) { alert('Case not found.'); return; }
+      // Only allow loading if the case is owned by this user
+      const data = userCasesArr.find(c => c.id === selectedId && c.owner === detectiveId);
+      if (!data) { alert('Case not found or not owned by you.'); return; }
       document.getElementById('case-desc').value        = data.desc    || '';
       document.getElementById('detective-notes').value  = data.notes       || '';
       document.getElementById('case-conclusion').value  = data.conclusion  || '';
