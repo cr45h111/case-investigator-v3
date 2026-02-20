@@ -108,23 +108,39 @@ const Auth = (() => {
         return;
       }
 
-      // Generate or reuse employee ID
-      let id = DB.Prefs.get('empId') || generateId();
-      DB.Prefs.set('empId',       id);
-      DB.Prefs.set('empName',     name);
-      DB.Prefs.set('empPassword', password);
+      // Check if this user already exists
+      const storedName = DB.Prefs.get('empName');
+      const storedPassword = DB.Prefs.get('empPassword');
+      const storedPhoto = DB.Prefs.get('empPhoto');
+      let id = DB.Prefs.get('empId');
 
-      // Photo: only update if a new file was chosen
-      if (photoInput.files && photoInput.files[0]) {
-        const reader = new FileReader();
-        reader.onload = evt => {
-          DB.Prefs.set('empPhoto', evt.target.result);
-          showApp();
-        };
-        reader.readAsDataURL(photoInput.files[0]);
-      } else {
-        // Use existing stored photo if available (no re-upload needed)
+      if (storedName && storedPassword) {
+        // User exists, check credentials
+        if (name !== storedName || password !== storedPassword) {
+          alert('Incorrect name or password.');
+          return;
+        }
+        // Credentials match, proceed
         showApp();
+      } else {
+        // New user registration
+        id = generateId();
+        DB.Prefs.set('empId', id);
+        DB.Prefs.set('empName', name);
+        DB.Prefs.set('empPassword', password);
+        // Photo: only update if a new file was chosen
+        if (photoInput.files && photoInput.files[0]) {
+          const reader = new FileReader();
+          reader.onload = evt => {
+            DB.Prefs.set('empPhoto', evt.target.result);
+            showApp();
+          };
+          reader.readAsDataURL(photoInput.files[0]);
+        } else {
+          // No photo uploaded
+          DB.Prefs.set('empPhoto', '');
+          showApp();
+        }
       }
     });
 
