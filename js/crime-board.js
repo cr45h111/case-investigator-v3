@@ -311,6 +311,13 @@ const CrimeBoard = (() => {
     // Load per-user board state
     const userId = DB.Prefs.get('empId');
     let state = null;
+    // Clear board arrays before loading
+    items = [];
+    connections = [];
+    // Remove all board-item elements
+    if (board) {
+      board.querySelectorAll('.board-item').forEach(el => el.remove());
+    }
     if (userId) {
       let userBoards = {};
       try { userBoards = JSON.parse(localStorage.getItem('userBoards') || '{}'); } catch {}
