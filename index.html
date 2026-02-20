@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Case Investigator">
+  <title>Case Investigator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════
+     LOGIN MODAL
+═══════════════════════════════════════════════ -->
+<div id="login-modal" class="overlay-modal" style="display:none;">
+  <div class="modal-box" style="max-width:400px;">
+    <h2 class="modal-title">🔍 Detective Login</h2>
+    <form id="login-form" autocomplete="off">
+      <div class="form-group">
+        <label>Detective Name</label>
+        <input type="text" id="login-name" placeholder="Your name" required autofocus>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="Password" required>
+      </div>
+      <div class="form-group">
+        <label>Badge Photo <span style="color:#888;">(optional, persists after upload)</span></label>
+        <input type="file" id="login-photo" accept="image/*">
+        <div id="login-photo-preview" style="margin-top:8px;"></div>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">
+        Login / Sign Up
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     HEADER
+═══════════════════════════════════════════════ -->
+<header id="app-header">
+  <div id="header-layout">
+
+    <!-- Employee ID Card (double-click to logout) -->
+    <div id="employee-id-card" title="Double-click to log out">
+      <img id="employee-photo" src="" alt="Badge">
+      <div id="employee-info">
+        <div id="detective-rank">Rank: Rookie</div>
+        <div id="employee-name">Not logged in</div>
+        <div id="employee-id">ID: --</div>
+        <div class="badge-label">Detective Badge</div>
+      </div>
+      <div id="card-watermark"></div>
+    </div>
+
+    <!-- App Title -->
+    <div id="header-center">
+      <div class="app-title-small">Case</div>
+      <div class="app-title-large">Investigator</div>
+      <div id="header-buttons">
+        <button class="btn btn-outline" id="tutorial-btn">❓ Tutorial</button>
+        <button class="btn btn-outline" id="about-btn">ℹ️ About</button>
+      </div>
+    </div>
+
+    <!-- Score Card -->
+    <div id="score-card">
+      <div class="score-title">Score Card</div>
+      <div>Cases Taken: <span id="cases-taken">0</span></div>
+      <div>Open: <span id="cases-open">0</span></div>
+      <div>Solved: <span id="cases-solved">0</span></div>
+    </div>
+
+  </div>
+  <div id="progress-bar"><div id="progress-bar-fill"></div></div>
+</header>
+
+<!-- ═══════════════════════════════════════════════
+     MAIN CONTENT
+═══════════════════════════════════════════════ -->
+<main id="app-main" style="display:none;">
+
+  <!-- API KEY BANNER -->
+  <div id="api-key-banner">
+    <span>🤖 AI Features require an Anthropic API key.</span>
+    <input type="password" id="api-key-input" placeholder="sk-ant-...">
+    <button class="btn btn-sm btn-primary" id="save-api-key">Save Key</button>
+    <span id="api-key-status"></span>
+  </div>
+
+  <!-- ── SECTION 1: CASE DESCRIPTION ── -->
+  <section class="card">
+    <h2>📝 Case Description</h2>
+    <div class="assigned-detective">
+      <b>Assigned Detective ID:</b> <span id="case-employee-id">--</span>
+      &nbsp;&nbsp;<b>Case ID:</b> <span id="active-case-id">--</span>
+    </div>
+    <textarea id="case-desc" rows="4" placeholder="Describe the case: who, what, when, where, why. The more detail, the better the AI analysis."></textarea>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="start-case">🔎 Start New Investigation</button>
+      <button class="btn" id="save-case">💾 Save Case File</button>
+      <button class="btn" id="load-case">📂 Load Case File</button>
+      <button class="btn" id="view-case-desc">📄 View Case Report</button>
+    </div>
+    <div id="profile-output"></div>
+  </section>
+
+  <!-- ── SECTION 2: SUBJECTS DATABASE ── -->
+  <section class="card">
+    <h2>👤 Subjects Database</h2>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="add-subject-btn">➕ Add Subject</button>
+      <button class="btn" id="view-database-btn">📊 View Full Database</button>
+    </div>
+    <div id="suspect-list"></div>
+  </section>
+
+  <!-- ── SECTION 3: INTERROGATION ── -->
+  <section class="card" id="interrogation-section">
+    <h2>🎯 Interrogation Workflow</h2>
+
+    <div class="form-group">
+      <label>Subject Type</label>
+      <select id="interrogation-subject">
+        <option value="">-- Choose --</option>
+        <option value="suspect">Suspect</option>
+        <option value="witness">Witness</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Subject's Name</label>
+      <input type="text" id="interrogation-subject-name" placeholder="Full name">
+    </div>
+
+    <div class="form-group">
+      <label>Context / Previous Response</label>
+      <textarea id="crime-scene" rows="2" placeholder="Location, time, or paste their last answer for follow-up questions…"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Question to Ask</label>
+      <textarea id="interrogation-question" rows="3" placeholder="Your question…"></textarea>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="auto-generate-question">🤖 AI Generate Question</button>
+      <button class="btn" id="next-question">➡️ Next Question</button>
+    </div>
+
+    <div class="btn-row" id="media-capture">
+      <button class="btn" id="capture-photo">📸 Capture Photo</button>
+      <button class="btn" id="capture-video">🎥 Record Video</button>
+      <button class="btn btn-danger" id="stop-video" style="display:none;">⏹ Stop Video</button>
+      <button class="btn" id="capture-audio">🎤 Record Audio</button>
+      <button class="btn btn-danger" id="stop-audio" style="display:none;">⏹ Stop Audio</button>
+    </div>
+
+    <div id="response-section" style="display:none;">
+      <div class="form-group">
+        <label>Subject Response</label>
+        <textarea id="subject-response" rows="4" placeholder="Type or transcribe their answer…"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="analyze-response">🔍 AI Analyze Response</button>
+        <button class="btn" id="add-to-board-btn">🧩 Add Media to Crime Board</button>
+      </div>
+      <div id="captured-media-list"></div>
+      <div id="media-select-panel"></div>
+    </div>
+
+    <div id="analysis-result"></div>
+  </section>
+
+  <!-- ── SECTION 4: CRIME BOARD ── -->
+  <section class="card">
+    <h2>🗂️ Crime Board</h2>
+    <div id="board-controls">
+      <label>Connection Color:</label>
+      <input type="color" id="yarn-color" value="#ff3333">
+      <button class="btn btn-sm" id="connect-mode-btn">🔗 Connect Mode: OFF</button>
+      <button class="btn btn-sm btn-danger" id="clear-connections-btn">🗑 Clear Lines</button>
+      <button class="btn btn-sm" id="delete-selected-btn">❌ Delete Selected</button>
+    </div>
+    <div id="crime-board">
+      <canvas id="yarn-canvas"></canvas>
+    </div>
+    <div class="form-group" style="margin-top:16px;">
+      <label>Detective Notes</label>
+      <textarea id="detective-notes" rows="4" placeholder="Ongoing investigation notes…"></textarea>
+    </div>
+  </section>
+
+  <!-- ── SECTION 5: PHOTO EVIDENCE ── -->
+  <section class="card">
+    <h3>📸 Crime Scene Photos</h3>
+    <input type="file" id="crime-scene-upload" accept="image/*" multiple>
+    <div id="crime-scene-photos" class="photo-grid"></div>
+    <button class="btn btn-sm" id="add-crime-scene-to-board" style="margin-top:8px;">Add Selected to Board</button>
+  </section>
+
+  <section class="card">
+    <h3>🧾 Evidence Photos</h3>
+    <input type="file" id="evidence-upload" accept="image/*" multiple>
+    <div id="evidence-photos" class="photo-grid"></div>
+    <button class="btn btn-sm" id="add-evidence-to-board" style="margin-top:8px;">Add Selected to Board</button>
+  </section>
+
+  <!-- ── SECTION 6: AI THOUGHTS ── -->
+  <section class="card" id="analysis-panel">
+    <h2>💭 Detective Thoughts</h2>
+    <div id="thoughts"></div>
+    <h3 style="margin-top:16px;">📊 Guilt Probability Meters</h3>
+    <div id="probability-meter"></div>
+    <div class="form-group" style="margin-top:16px;">
+      <label>Case Conclusion</label>
+      <textarea id="case-conclusion" rows="3" placeholder="Summarize your findings…"></textarea>
+    </div>
+    <button class="btn btn-primary" id="ai-insights-btn" style="margin-top:8px;">🤖 Generate AI Insights</button>
+  </section>
+
+  <!-- ── SECTION 7: SOLVE ── -->
+  <section class="card">
+    <button class="btn btn-solve" id="solve-button">✅ SOLVE CASE</button>
+  </section>
+
+</main>
+
+<!-- ═══════════════════════════════════════════════
+     MODALS
+═══════════════════════════════════════════════ -->
+
+<!-- Case Report Modal -->
+<div id="case-desc-modal" class="overlay-modal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>📄 Case Report</h3>
+      <button class="btn-close" id="close-case-modal">✕</button>
+    </div>
+    <div id="case-report-content"></div>
+  </div>
+</div>
+
+<!-- Add Subject Modal -->
+<div id="add-suspect-modal" class="overlay-modal" style="display:none;">
+  <div class="modal-box" style="max-width:700px;">
+    <div class="modal-header">
+      <h3>➕ Add Subject to Database</h3>
+      <button class="btn-close" id="close-add-suspect">✕</button>
+    </div>
+
+    <div class="form-section">
+      <h4>👤 Basic Information</h4>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" id="ns-name" placeholder="John Doe">
+        </div>
+        <div class="form-group">
+          <label>Case ID</label>
+          <input type="text" id="ns-case-id" placeholder="Auto-filled">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Sex *</label>
+          <select id="ns-sex">
+            <option value="">--</option>
+            <option>Male</option><option>Female</option>
+            <option>Other</option><option>Unknown</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Age *</label>
+          <input type="number" id="ns-age" placeholder="35" min="0" max="120">
+        </div>
+        <div class="form-group">
+          <label>Height</label>
+          <input type="text" id="ns-height" placeholder="5'10&quot;">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h4>📍 Contact & Location</h4>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Address</label>
+          <input type="text" id="ns-address" placeholder="123 Main St">
+        </div>
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="text" id="ns-phone" placeholder="555-1234">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="text" id="ns-email" placeholder="name@email.com">
+        </div>
+        <div class="form-group">
+          <label>Vehicle</label>
+          <input type="text" id="ns-vehicle" placeholder="2020 Blue Toyota Camry">
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h4>📋 Background</h4>
+      <div class="form-group">
+        <label>Personal History</label>
+        <textarea id="ns-history" rows="3" placeholder="Employment, family, known associates…"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Crime History</label>
+        <textarea id="ns-crime-history" rows="3" placeholder="Prior arrests, charges, convictions…"></textarea>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h4>📷 Photo</h4>
+      <button class="btn btn-sm" id="ns-photo-btn">📁 Upload Photo</button>
+      <input type="file" id="ns-photo-input" accept="image/*" style="display:none;">
+      <div style="margin-top:8px;">
+        <img id="ns-photo-preview" style="max-width:200px;border-radius:8px;display:none;">
+      </div>
+    </div>
+
+    <div class="form-section">
+      <h4>💬 Statement / Notes</h4>
+      <div class="form-group">
+        <textarea id="ns-statement" rows="4" placeholder="Suspect statement or investigator notes…"></textarea>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn" id="cancel-add-suspect">Cancel</button>
+      <button class="btn btn-primary" id="save-new-suspect">💾 Save to Database</button>
+    </div>
+  </div>
+</div>
+
+<!-- Subject Database Modal -->
+<div id="database-modal" class="overlay-modal" style="display:none;">
+  <div class="modal-box" style="max-width:900px;">
+    <div class="modal-header">
+      <h3>🗃️ Subject Database</h3>
+      <button class="btn-close" id="close-database-modal">✕</button>
+    </div>
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="all">📋 All</button>
+      <button class="tab-btn" data-tab="active">🔴 Active</button>
+      <button class="tab-btn" data-tab="closed">⚫ Closed</button>
+      <button class="tab-btn" data-tab="bycase">📁 By Case</button>
+    </div>
+    <div id="database-content"></div>
+  </div>
+</div>
+
+<!-- Subject Detail Modal -->
+<div id="subject-detail-modal" class="overlay-modal" style="display:none;">
+  <div class="modal-box" style="max-width:500px;">
+    <div class="modal-header">
+      <h3 id="detail-name">Subject Name</h3>
+      <button class="btn-close" id="close-detail-modal">✕</button>
+    </div>
+    <img id="detail-photo" style="width:100%;max-height:280px;object-fit:cover;border-radius:8px;margin-bottom:12px;display:none;">
+    <div id="detail-fields"></div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" id="delete-subject-btn">🗑 Delete</button>
+      <button class="btn" id="close-detail-btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Witness Modal -->
+<div id="witness-modal" class="overlay-modal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>👁️ Witness Report</h3>
+      <button class="btn-close" id="close-witness-modal">✕</button>
+    </div>
+    <div class="form-group">
+      <label>Witness Name</label>
+      <input type="text" id="witness-name" placeholder="Jane Smith">
+    </div>
+    <div class="form-group">
+      <label>Date & Time</label>
+      <input type="datetime-local" id="witness-datetime">
+    </div>
+    <div class="form-group">
+      <label>Location</label>
+      <input type="text" id="witness-location" placeholder="Corner of 5th & Main">
+    </div>
+    <div class="form-group">
+      <label>Statement</label>
+      <textarea id="witness-statement" rows="6" placeholder="What did they witness?"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="cancel-witness">Cancel</button>
+      <button class="btn btn-primary" id="save-witness">💾 Save Report</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tutorial Modal -->
+<div id="tutorial-modal" class="overlay-modal" style="display:none;">
+  <div class="modal-box" style="max-width:680px;">
+    <div class="modal-header">
+      <h3>📖 Tutorial</h3>
+      <button class="btn-close" id="close-tutorial">✕</button>
+    </div>
+    <div id="tutorial-content">
+      <ol class="tutorial-list">
+        <li><b>Login:</b> Enter name + password. Upload a badge photo — it persists permanently. Double-click your ID card at any time to instantly log out.</li>
+        <li><b>API Key:</b> Paste your Anthropic API key in the banner at the top. All AI features (question generation, response analysis, insights) use it.</li>
+        <li><b>Start a Case:</b> Describe the case and click <b>Start New Investigation</b>. A Case ID is auto-generated and scores update.</li>
+        <li><b>Subjects Database:</b> Add suspects or witnesses with full profile details. View, filter, or delete entries from the database modal.</li>
+        <li><b>Interrogation:</b> Select a subject type and name. Use <b>AI Generate Question</b> for smart follow-up questions. Capture unlimited photo/video/audio evidence.</li>
+        <li><b>Analyze Responses:</b> Type or transcribe the subject's answer, then click <b>AI Analyze Response</b> for a truth score and follow-up suggestions.</li>
+        <li><b>Crime Board:</b> Drag any photo, video, or audio onto the board. Click an item to select it (glows blue). Enable <b>Connect Mode</b> and click two items to draw a colored line between them. Change the line color with the color picker.</li>
+        <li><b>Evidence Photos:</b> Upload crime scene and evidence photos, then add them to the board.</li>
+        <li><b>AI Insights:</b> Click <b>Generate AI Insights</b> for a full case analysis with guilt probability meters.</li>
+        <li><b>Solve Case:</b> Click <b>SOLVE CASE</b> to close the investigation and update your score.</li>
+        <li><b>Save/Load:</b> Use <b>Save Case File</b> to download your case as JSON, and <b>Load Case File</b> to restore it.</li>
+      </ol>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="close-tutorial-btn">Got it!</button>
+    </div>
+  </div>
+</div>
+
+<!-- About Modal -->
+<div id="about-modal" class="overlay-modal" style="display:none;">
+  <div class="modal-box" style="max-width:500px;">
+    <div class="modal-header">
+      <h3>ℹ️ About</h3>
+      <button class="btn-close" id="close-about">✕</button>
+    </div>
+    <p><b>Case Investigator</b> v3.0</p>
+    <p><b>Creator:</b> Chris Fisher</p>
+    <p><b>Company:</b> cr45h apps</p>
+    <p><b>Release:</b> February 2026</p>
+    <p style="margin-top:12px;">A professional investigation management tool with AI-powered interrogation support, multimedia evidence capture, and visual crime board analysis.</p>
+    <p style="margin-top:8px;color:#888;"><b>Contact:</b> chrisfish875@gmail.com</p>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="close-about-btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCRIPTS (order matters)
+═══════════════════════════════════════════════ -->
+<script src="js/storage.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ai-engine.js"></script>
+<script src="js/media-capture.js"></script>
+<script src="js/crime-board.js"></script>
+<script src="js/suspect-db.js"></script>
+<script src="js/interrogation.js"></script>
+<script src="js/case-manager.js"></script>
+<script src="js/main.js"></script>
+
+</body>
+</html>
