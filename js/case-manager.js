@@ -71,7 +71,6 @@ const CaseManager = (() => {
     };
     userCases[detectiveId].push(caseRecord);
     localStorage.setItem('userCases', JSON.stringify(userCases));
-    await DB.put('cases', caseRecord);
 
     alert(`✅ Investigation ${id} started!`);
   }
@@ -131,7 +130,10 @@ const CaseManager = (() => {
     confirmBtn.style.margin = '12px';
     confirmBtn.onclick = async () => {
       const selectedId = selector.value;
-      const data = cases.find(c => c.id === selectedId);
+      let userCases = {};
+      try { userCases = JSON.parse(localStorage.getItem('userCases') || '{}'); } catch {}
+      const userCasesArr = userCases[detectiveId] || [];
+      const data = userCasesArr.find(c => c.id === selectedId);
       if (!data) { alert('Case not found.'); return; }
       document.getElementById('case-desc').value        = data.desc    || '';
       document.getElementById('detective-notes').value  = data.notes       || '';
@@ -207,21 +209,20 @@ const CaseManager = (() => {
     DB.Prefs.set('casesOpen',   open);
     DB.Prefs.set('casesSolved', solved);
 
-    // Mark active case as solved in IDB
+    // Mark active case as solved for this user only
     const caseId = DB.Prefs.get('activeCaseId');
-    if (caseId) {
-      const rec = await DB.get('cases', caseId);
+    const detectiveId = DB.Prefs.get('empId');
+    if (caseId && detectiveId) {
+      let userCases = {};
+      try { userCases = JSON.parse(localStorage.getItem('userCases') || '{}'); } catch {}
+      const userCasesArr = userCases[detectiveId] || [];
+      const rec = userCasesArr.find(c => c.id === caseId);
       if (rec) {
         rec.status   = 'solved';
         rec.solvedAt = new Date().toISOString();
-        await DB.put('cases', rec);
+        localStorage.setItem('userCases', JSON.stringify(userCases));
       }
-      // Mark suspects as closed
-      const suspects = await DB.getAll('suspects');
-      for (const s of suspects.filter(s2 => s2.caseId === caseId)) {
-        s.status = 'closed';
-        await DB.put('suspects', s);
-      }
+      // Mark suspects as closed (handled in suspects-db.js per user)
     }
 
     Auth.refreshScores();
