@@ -1,13 +1,19 @@
 /* ═══════════════════════════════════════════════
-   js/storage.js  —  IndexedDB wrapper
-   Replaces all localStorage usage for case data.
-   localStorage is used ONLY for tiny prefs (photo, api key).
+   js/storage.js  —  IndexedDB + localStorage
+   Per-user isolation:
+     · IDB records stamped with userId, filtered on read
+     · localStorage Prefs prefixed  userId__key
+     · GLOBAL_KEYS stored without prefix (shared)
 ═══════════════════════════════════════════════ */
 
 const DB = (() => {
-  const DB_NAME  = 'CaseInvestigator';
-  const DB_VER   = 1;
-  let _db = null;
+  const DB_NAME = 'CaseInvestigator';
+  const DB_VER  = 1;
+  let _db     = null;
+  let _userId = null;
+
+  function setCurrentUser(uid) { _userId = uid; }
+  function getCurrentUser()    { return _userId; }
 
   function open() {
     return new Promise((resolve, reject) => {
@@ -15,21 +21,10 @@ const DB = (() => {
       const req = indexedDB.open(DB_NAME, DB_VER);
       req.onupgradeneeded = e => {
         const db = e.target.result;
-        if (!db.objectStoreNames.contains('suspects')) {
-          db.createObjectStore('suspects', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('cases')) {
-          db.createObjectStore('cases', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('witnesses')) {
-          db.createObjectStore('witnesses', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('boardItems')) {
-          db.createObjectStore('boardItems', { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('boardConnections')) {
-          db.createObjectStore('boardConnections', { keyPath: 'id' });
-        }
+        ['suspects','cases','witnesses','boardItems','boardConnections'].forEach(n => {
+          if (!db.objectStoreNames.contains(n))
+            db.createObjectStore(n, { keyPath: 'id' });
+        });
       };
       req.onsuccess = e => { _db = e.target.result; resolve(_db); };
       req.onerror   = e => reject(e.target.error);
@@ -44,8 +39,9 @@ const DB = (() => {
     await open();
     return new Promise((resolve, reject) => {
       const req = tx(store).getAll();
-      req.onsuccess = e => resolve(e.target.result || []);
-      req.onerror   = e => reject(e.target.error);
+      req.onsuccess = e =>
+        resolve((e.target.result || []).filter(r => r.userId === _userId));
+      req.onerror = e => reject(e.target.error);
     });
   }
 
@@ -60,8 +56,9 @@ const DB = (() => {
 
   async function put(store, record) {
     await open();
+    const r = { ...record, userId: _userId };
     return new Promise((resolve, reject) => {
-      const req = tx(store, 'readwrite').put(record);
+      const req = tx(store, 'readwrite').put(r);
       req.onsuccess = () => resolve();
       req.onerror   = e => reject(e.target.error);
     });
@@ -79,18 +76,33 @@ const DB = (() => {
   async function clear(store) {
     await open();
     return new Promise((resolve, reject) => {
-      const req = tx(store, 'readwrite').clear();
-      req.onsuccess = () => resolve();
-      req.onerror   = e => reject(e.target.error);
+      const t   = _db.transaction(store, 'readwrite');
+      const s   = t.objectStore(store);
+      const req = s.getAll();
+      req.onsuccess = e => {
+        (e.target.result || [])
+          .filter(r => r.userId === _userId)
+          .forEach(r => s.delete(r.id));
+      };
+      t.oncomplete = () => resolve();
+      t.onerror    = e  => reject(e.target.error);
     });
   }
 
-  // Tiny prefs that don't need IDB (non-sensitive, small)
+  const GLOBAL_KEYS = new Set([
+    'anthropicKey',
+    '__currentUser__'
+  ]);
+
   const Prefs = {
-    get: k      => { try { return localStorage.getItem(k); } catch { return null; } },
-    set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
-    del: k      => { try { localStorage.removeItem(k); } catch {} }
+    _key(k) {
+      if (GLOBAL_KEYS.has(k) || k.startsWith('__account__')) return k;
+      return _userId ? (_userId + '__' + k) : k;
+    },
+    get:  function(k)    { try { return localStorage.getItem(Prefs._key(k));  } catch(e) { return null; } },
+    set:  function(k, v) { try { localStorage.setItem(Prefs._key(k), v);      } catch(e) {}              },
+    del:  function(k)    { try { localStorage.removeItem(Prefs._key(k));       } catch(e) {}              }
   };
 
-  return { open, getAll, get, put, del, clear, Prefs };
+  return { open, getAll, get, put, del, clear, Prefs, setCurrentUser, getCurrentUser };
 })();

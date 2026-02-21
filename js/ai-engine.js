@@ -81,27 +81,96 @@ Generate the single best next question to ask.`;
     return call(sys, msg, 200);
   }
 
-  // ── Analyze subject response ──────────────────
-  async function analyzeResponse(context) {
-    const sys = `You are an expert behavioral analyst and lie detection specialist.
-Analyze the provided interrogation response. Return a structured analysis in this exact format:
+  // ── Analyze captured media for behavioral deception cues ─────────────
+  // Accepts an array of base64 image frames extracted from photos/video.
+  // Audio is analyzed by describing voice stress context.
+  async function analyzeMedia(context) {
+    if (!hasKey()) {
+      return '⚠️ No API key set. Paste your Anthropic key in the banner above.';
+    }
+
+    const sys = `You are an expert forensic behavioral analyst specializing in deception detection.
+You are analyzing interrogation media (photos, video frames, audio context) of a subject.
+Look for nonverbal behavioral cues that may indicate deception, stress, or concealment.
+
+Examine and report on:
+- FACIAL EXPRESSIONS: microexpressions, asymmetry, forced vs genuine emotion, eye contact avoidance, blink rate changes
+- BODY LANGUAGE & POSTURE: self-soothing gestures, crossed arms/legs, leaning away, shoulder tension, fidgeting
+- HAND & GESTURE ANALYSIS: covering mouth, touching face/neck, object manipulation, illustrator suppression
+- VOCAL STRESS INDICATORS (if audio present): pitch changes, speech rate, hesitations, voice tremor, dry mouth signs
+- AUTONOMIC RESPONSES: flushing, sweating, swallowing, pupil dilation (if visible)
+
+Return your analysis in this exact format:
 
 TRUTH SCORE: [0-100]
-DECEPTION INDICATORS: [list any red flags, or "None detected"]
-EMOTIONAL STATE: [brief assessment]
-KEY INCONSISTENCIES: [any logical gaps, or "None"]
-RECOMMENDED FOLLOW-UPS:
-1. [question]
-2. [question]
-3. [question]
-OVERALL ASSESSMENT: [2-3 sentence summary]`;
+FACIAL CUES: [specific observations or "Not visible"]
+BODY LANGUAGE: [specific observations or "Not visible"]  
+GESTURE ANALYSIS: [specific observations or "Not visible"]
+VOCAL STRESS: [specific observations or "Audio not provided"]
+AUTONOMIC INDICATORS: [specific observations or "None visible"]
+DECEPTION INDICATORS: [summarize the most significant red flags, or "None detected"]
+EMOTIONAL STATE: [overall emotional assessment]
+OVERALL ASSESSMENT: [2-3 sentence behavioral summary and credibility judgment]`;
 
-    const msg = `Case: ${context.caseDesc || '(none)'}
+    // Build the message content array — text context + image frames
+    const contentParts = [];
+
+    // Add text context first
+    contentParts.push({
+      type: 'text',
+      text: `Case: ${context.caseDesc || '(none)'}
 Subject: ${context.subjectName || 'unknown'} (${context.subjectType || 'unknown'})
-Question asked: ${context.question || '(none)'}
-Subject's response: ${context.response}`;
+Question asked during capture: ${context.question || '(none)'}
+Number of media items analyzed: ${context.frames ? context.frames.length : 0}
+Audio recording present: ${context.hasAudio ? 'Yes' : 'No'}
 
-    return call(sys, msg, 600);
+Analyze the following captured media for behavioral deception indicators:`
+    });
+
+    // Add image frames
+    if (context.frames && context.frames.length > 0) {
+      context.frames.forEach((frame, i) => {
+        contentParts.push({
+          type: 'text',
+          text: `[Media item ${i + 1} of ${context.frames.length} — ${frame.label || 'capture'}]:`
+        });
+        contentParts.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: frame.mediaType || 'image/jpeg',
+            data: frame.data  // pure base64, no data: prefix
+          }
+        });
+      });
+    }
+
+    try {
+      const resp = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': getKey(),
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 900,
+          system: sys,
+          messages: [{ role: 'user', content: contentParts }]
+        })
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        return `❌ API error ${resp.status}: ${err.error?.message || resp.statusText}`;
+      }
+      const data = await resp.json();
+      return data.content?.map(b => b.text || '').join('') || '(no response)';
+    } catch (err) {
+      return `❌ Network error: ${err.message}`;
+    }
   }
 
   // ── Generate case insights ────────────────────
@@ -158,7 +227,7 @@ Notes: ${subject.history || 'none'}`;
     initKeyBanner,
     hasKey,
     generateQuestion,
-    analyzeResponse,
+    analyzeMedia,
     generateCaseInsights,
     generateSubjectProfile
   };

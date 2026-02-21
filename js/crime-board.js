@@ -1,77 +1,71 @@
 /* ═══════════════════════════════════════════════
    js/crime-board.js  —  Visual Crime Board
-   - Draggable media items (photo, video, audio)
-   - Click to select (blue glow)
-   - Connect Mode: click two items to draw a line
-   - Color picker controls line color
-   - Lines persist with positions in IDB
+   Cards are COMPACT thumbnails when collapsed.
+   Click ▼ to expand and see all metadata fields.
+   Board is 2400×1600 and scrollable for timelines.
+   Board state is keyed per-user.
 ═══════════════════════════════════════════════ */
 
 const CrimeBoard = (() => {
 
-  let items        = [];   // { id, type, url, label, x, y }
-  let connections  = [];   // { id, fromId, toId, color }
-  let selectedId   = null;
-  let connectMode  = false;
-  let connectFirst = null; // id of first selected item in connect mode
-  let canvas, ctx, board;
+  var items       = [];
+  var connections = [];
+  var selectedId   = null;
+  var connectMode  = false;
+  var connectFirst = null;
+  var canvas, ctx, board;
 
-  // ── Utility ───────────────────────────────────
   function uid() {
     return 'bi_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   }
+  function boardStateKey() {
+    return 'board_state_' + (DB.getCurrentUser() || 'default');
+  }
+  function defaultMeta() {
+    return {
+      time: '', description: '', location: '', persons: '',
+      evidenceType: '', source: '', reliability: 'unconfirmed', connectionNotes: ''
+    };
+  }
 
-  // ── Canvas setup ─────────────────────────────
   function resizeCanvas() {
     if (!canvas || !board) return;
-    canvas.width  = board.clientWidth;
-    canvas.height = board.clientHeight;
+    canvas.width  = board.offsetWidth  || 2400;
+    canvas.height = board.offsetHeight || 1600;
     drawLines();
   }
 
-  // ── Draw all connection lines ─────────────────
   function drawLines() {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    connections.forEach(conn => {
-      const a = document.getElementById('bitem-' + conn.fromId);
-      const b = document.getElementById('bitem-' + conn.toId);
+    connections.forEach(function(conn) {
+      var a = document.getElementById('bitem-' + conn.fromId);
+      var b = document.getElementById('bitem-' + conn.toId);
       if (!a || !b) return;
-
-      const ax = parseInt(a.style.left) + a.offsetWidth  / 2;
-      const ay = parseInt(a.style.top)  + a.offsetHeight / 2;
-      const bx = parseInt(b.style.left) + b.offsetWidth  / 2;
-      const by = parseInt(b.style.top)  + b.offsetHeight / 2;
-
+      var ax = parseInt(a.style.left) + a.offsetWidth  / 2;
+      var ay = parseInt(a.style.top)  + a.offsetHeight / 2;
+      var bx = parseInt(b.style.left) + b.offsetWidth  / 2;
+      var by = parseInt(b.style.top)  + b.offsetHeight / 2;
       ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
+      ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
       ctx.strokeStyle = conn.color || '#ff3333';
       ctx.lineWidth   = 2.5;
       ctx.setLineDash([6, 3]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Small dot at each end
-      [{ x: ax, y: ay }, { x: bx, y: by }].forEach(pt => {
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = conn.color || '#ff3333';
-        ctx.fill();
+      ctx.stroke(); ctx.setLineDash([]);
+      [{x:ax,y:ay},{x:bx,y:by}].forEach(function(pt) {
+        ctx.beginPath(); ctx.arc(pt.x,pt.y,4,0,Math.PI*2);
+        ctx.fillStyle = conn.color || '#ff3333'; ctx.fill();
       });
     });
   }
 
-  // ── Add an item to the board ──────────────────
   function addItem(type, url, label) {
-    const item = {
-      id:    uid(),
-      type,
-      url,
-      label: label || type,
-      x: 20 + Math.random() * Math.max(10, board.clientWidth  - 230),
-      y: 20 + Math.random() * Math.max(10, board.clientHeight - 200)
+    var item = {
+      id: uid(), type: type, url: url, label: label || type,
+      x: 20 + Math.random() * Math.max(10, board.clientWidth  - 160),
+      y: 20 + Math.random() * Math.max(10, board.clientHeight - 160),
+      collapsed: true,
+      meta: defaultMeta()
     };
     items.push(item);
     renderItem(item);
@@ -79,255 +73,264 @@ const CrimeBoard = (() => {
     return item.id;
   }
 
-  // ── Render one item DOM element ───────────────
   function renderItem(item) {
-    const el = document.createElement('div');
-    el.className  = 'board-item';
+    if (!item.meta)                   item.meta = defaultMeta();
+    if (item.collapsed === undefined) item.collapsed = true;
+
+    var el = document.createElement('div');
+    el.className  = 'board-item' + (item.collapsed ? ' collapsed' : '');
     el.id         = 'bitem-' + item.id;
     el.dataset.id = item.id;
     el.style.left = item.x + 'px';
     el.style.top  = item.y + 'px';
 
-    // Type badge
-    const badge = document.createElement('span');
-    badge.className   = 'board-item-type';
-    badge.textContent = item.type.toUpperCase();
-    el.appendChild(badge);
+    // ── COLLAPSED VIEW: small thumbnail card ──────
+    // Shows: tiny type badge overlay on image, time below
+    // Width controlled by CSS (.board-item.collapsed = 130px)
 
-    // Media content
+    // ── Header (drag zone + controls) ─────────────
+    var hdr = document.createElement('div');
+    hdr.className = 'board-item-header';
+    hdr.innerHTML =
+      '<span class="board-item-type-badge">' + item.type.toUpperCase() + '</span>' +
+      '<span class="board-item-title">' + item.label + '</span>' +
+      '<button class="board-toggle-btn" title="Expand / collapse">' +
+        (item.collapsed ? '▼' : '▲') +
+      '</button>';
+    el.appendChild(hdr);
+
+    // ── Media thumbnail ────────────────────────────
+    var mw = document.createElement('div');
+    mw.className = 'board-item-media';
     if (item.type === 'photo') {
-      const img     = document.createElement('img');
-      img.src       = item.url;
-      img.draggable = false;
-      el.appendChild(img);
+      var img = document.createElement('img');
+      img.src = item.url; img.draggable = false;
+      mw.appendChild(img);
     } else if (item.type === 'video') {
-      const vid     = document.createElement('video');
-      vid.src       = item.url;
-      vid.controls  = true;
-      vid.draggable = false;
-      el.appendChild(vid);
+      // Collapsed: show poster frame as image; expanded: full video player
+      var vid = document.createElement('video');
+      vid.src = item.url; vid.controls = true; vid.draggable = false;
+      stopDragOn(vid);
+      mw.appendChild(vid);
     } else if (item.type === 'audio') {
-      const ico     = document.createElement('div');
-      ico.textContent = '🎤';
-      ico.style.cssText = 'font-size:2.5rem;text-align:center;padding:8px 0;';
-      const aud     = document.createElement('audio');
-      aud.src       = item.url;
-      aud.controls  = true;
-      el.appendChild(ico);
-      el.appendChild(aud);
+      var ico = document.createElement('div');
+      ico.className = 'board-audio-icon'; ico.textContent = '🎤';
+      var aud = document.createElement('audio');
+      aud.src = item.url; aud.controls = true;
+      stopDragOn(aud);
+      mw.appendChild(ico); mw.appendChild(aud);
     }
+    el.appendChild(mw);
 
-    // Label
-    const lbl      = document.createElement('div');
-    lbl.className  = 'board-item-label';
-    lbl.textContent = item.label;
-    el.appendChild(lbl);
+    // ── Time (always visible, compact) ────────────
+    var timeRow = document.createElement('div');
+    timeRow.className = 'meta-row meta-time-row';
+    var timeLbl = document.createElement('label');
+    timeLbl.className = 'meta-lbl'; timeLbl.textContent = '📅';
+    var timeInp = document.createElement('input');
+    timeInp.type = 'datetime-local';
+    timeInp.className = 'meta-inp';
+    timeInp.dataset.key = 'time';
+    timeInp.value = item.meta.time || '';
+    stopDragOn(timeInp);
+    timeInp.addEventListener('input',  function() { item.meta.time = timeInp.value; });
+    timeInp.addEventListener('change', function() { item.meta.time = timeInp.value; saveState(); });
+    timeRow.appendChild(timeLbl); timeRow.appendChild(timeInp);
+    el.appendChild(timeRow);
 
-    // ── Dragging ──
+    // ── Expandable metadata fields ─────────────────
+    var metaDiv = document.createElement('div');
+    metaDiv.className = 'board-meta';
+
+    var FIELDS = [
+      { key:'description',     label:'📝 Event',        type:'textarea' },
+      { key:'location',        label:'📍 Location',     type:'text'     },
+      { key:'persons',         label:'👤 Person(s)',    type:'text'     },
+      { key:'evidenceType',    label:'🔍 Evidence',     type:'text'     },
+      { key:'source',          label:'📂 Source',       type:'text'     },
+      { key:'reliability',     label:'✅ Status',       type:'select',
+        options:['unconfirmed','confirmed','disputed','pending review'] },
+      { key:'connectionNotes', label:'🔗 Notes',        type:'textarea' }
+    ];
+
+    FIELDS.forEach(function(f) {
+      var row = document.createElement('div');
+      row.className = 'meta-row';
+      var lbl = document.createElement('label');
+      lbl.className = 'meta-lbl'; lbl.textContent = f.label;
+      row.appendChild(lbl);
+      var inp;
+      if (f.type === 'textarea') {
+        inp = document.createElement('textarea');
+        inp.rows = 2; inp.value = item.meta[f.key] || '';
+      } else if (f.type === 'select') {
+        inp = document.createElement('select');
+        f.options.forEach(function(opt) {
+          var o = document.createElement('option');
+          o.value = opt;
+          o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1);
+          if ((item.meta[f.key] || 'unconfirmed') === opt) o.selected = true;
+          inp.appendChild(o);
+        });
+      } else {
+        inp = document.createElement('input');
+        inp.type = f.type; inp.value = item.meta[f.key] || '';
+      }
+      inp.className = 'meta-inp';
+      inp.dataset.key = f.key;
+      stopDragOn(inp);
+      inp.addEventListener('input',  function() { item.meta[f.key] = inp.value; });
+      inp.addEventListener('change', function() { item.meta[f.key] = inp.value; saveState(); });
+      inp.addEventListener('blur',   function() { item.meta[f.key] = inp.value; saveState(); });
+      row.appendChild(inp);
+      metaDiv.appendChild(row);
+    });
+
+    el.appendChild(metaDiv);
+
+    // ── Toggle collapse ────────────────────────────
+    hdr.querySelector('.board-toggle-btn').addEventListener('click', function(e) {
+      e.stopPropagation();
+      item.collapsed = !item.collapsed;
+      el.classList.toggle('collapsed', item.collapsed);
+      this.textContent = item.collapsed ? '▼' : '▲';
+      drawLines();
+      saveState();
+    });
+
     makeDraggable(el, item);
 
-    // ── Click to select / connect ──
-    el.addEventListener('click', e => {
+    el.addEventListener('click', function(e) {
+      if (e.target.closest('.board-meta'))       return;
+      if (e.target.closest('.meta-time-row'))    return;
+      if (e.target.closest('.board-toggle-btn')) return;
       e.stopPropagation();
-
-      if (connectMode) {
-        handleConnectClick(item.id, el);
-        return;
-      }
-
-      // Normal select
+      if (connectMode) { handleConnectClick(item.id, el); return; }
       if (selectedId === item.id) {
-        // Deselect
-        el.classList.remove('selected');
-        selectedId = null;
+        el.classList.remove('selected'); selectedId = null;
       } else {
-        // Deselect old
-        if (selectedId) {
-          const old = document.getElementById('bitem-' + selectedId);
-          if (old) old.classList.remove('selected');
-        }
-        el.classList.add('selected');
-        selectedId = item.id;
+        var old = document.getElementById('bitem-' + selectedId);
+        if (old) old.classList.remove('selected');
+        el.classList.add('selected'); selectedId = item.id;
       }
     });
 
     board.appendChild(el);
   }
 
-  // ── Dragging logic ────────────────────────────
+  function stopDragOn(el) {
+    // Only block mousedown/touchstart so drag doesn't accidentally start on inputs.
+    // Do NOT block click — connect mode needs clicks to bubble up to the card handler.
+    el.addEventListener('mousedown',  function(e) { e.stopPropagation(); });
+    el.addEventListener('touchstart', function(e) { e.stopPropagation(); }, {passive:true});
+  }
+
   function makeDraggable(el, item) {
-    let dragging = false, startX, startY, origX, origY;
+    var dragging=false, startX, startY, origX, origY;
 
-    el.addEventListener('mousedown', e => {
-      if (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO') return;
-      if (e.button !== 0) return;
-      dragging = true;
-      startX = e.clientX; startY = e.clientY;
-      origX  = parseInt(el.style.left); origY = parseInt(el.style.top);
-      el.style.zIndex = 10;
+    el.addEventListener('mousedown', function(e) {
+      if (e.target.closest('.board-meta'))       return;
+      if (e.target.closest('.meta-time-row'))    return;
+      if (e.target.closest('.board-toggle-btn')) return;
+      if (e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO') return;
+      if (e.button!==0) return;
       e.preventDefault();
+      dragging=true; startX=e.clientX; startY=e.clientY;
+      origX=parseInt(el.style.left)||0; origY=parseInt(el.style.top)||0;
+      el.style.zIndex=10;
     });
 
-    document.addEventListener('mousemove', e => {
+    document.addEventListener('mousemove', function(e) {
       if (!dragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      const bRect = board.getBoundingClientRect();
-      let nx = origX + dx;
-      let ny = origY + dy;
-      nx = Math.max(0, Math.min(nx, bRect.width  - el.offsetWidth));
-      ny = Math.max(0, Math.min(ny, bRect.height - el.offsetHeight));
-      el.style.left = nx + 'px';
-      el.style.top  = ny + 'px';
-      item.x = nx; item.y = ny;
+      el.style.left = Math.max(0, origX+e.clientX-startX)+'px';
+      el.style.top  = Math.max(0, origY+e.clientY-startY)+'px';
+      item.x = parseInt(el.style.left); item.y = parseInt(el.style.top);
       drawLines();
     });
 
-    document.addEventListener('mouseup', () => {
+    document.addEventListener('mouseup', function() {
       if (!dragging) return;
-      dragging = false;
-      el.style.zIndex = 2;
-      saveState();
+      dragging=false; el.style.zIndex=2; saveState();
     });
 
-    // Touch support
-    el.addEventListener('touchstart', e => {
-      if (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO') return;
-      const t = e.touches[0];
-      dragging = true;
-      startX = t.clientX; startY = t.clientY;
-      origX  = parseInt(el.style.left); origY = parseInt(el.style.top);
-      el.style.zIndex = 10;
-    }, { passive: true });
+    el.addEventListener('touchstart', function(e) {
+      if (e.target.closest('.board-meta'))       return;
+      if (e.target.closest('.meta-time-row'))    return;
+      if (e.target.closest('.board-toggle-btn')) return;
+      if (e.target.tagName==='VIDEO'||e.target.tagName==='AUDIO') return;
+      var t=e.touches[0];
+      dragging=true; startX=t.clientX; startY=t.clientY;
+      origX=parseInt(el.style.left)||0; origY=parseInt(el.style.top)||0;
+      el.style.zIndex=10;
+    }, {passive:true});
 
-    document.addEventListener('touchmove', e => {
+    document.addEventListener('touchmove', function(e) {
       if (!dragging) return;
-      const t = e.touches[0];
-      const dx = t.clientX - startX, dy = t.clientY - startY;
-      const bRect = board.getBoundingClientRect();
-      let nx = Math.max(0, Math.min(origX + dx, bRect.width  - el.offsetWidth));
-      let ny = Math.max(0, Math.min(origY + dy, bRect.height - el.offsetHeight));
-      el.style.left = nx + 'px';
-      el.style.top  = ny + 'px';
-      item.x = nx; item.y = ny;
+      var t=e.touches[0];
+      el.style.left = Math.max(0,origX+t.clientX-startX)+'px';
+      el.style.top  = Math.max(0,origY+t.clientY-startY)+'px';
+      item.x=parseInt(el.style.left); item.y=parseInt(el.style.top);
       drawLines();
-    }, { passive: true });
+    }, {passive:true});
 
-    document.addEventListener('touchend', () => {
-      if (dragging) { dragging = false; el.style.zIndex = 2; saveState(); }
+    document.addEventListener('touchend', function() {
+      if (dragging) { dragging=false; el.style.zIndex=2; saveState(); }
     });
   }
 
-  // ── Connect mode ──────────────────────────────
   function toggleConnectMode() {
-    connectMode = !connectMode;
-    connectFirst = null;
-    const btn = document.getElementById('connect-mode-btn');
-    if (connectMode) {
-      btn.textContent = '🔗 Connect Mode: ON';
-      btn.classList.add('active');
-    } else {
-      btn.textContent = '🔗 Connect Mode: OFF';
-      btn.classList.remove('active');
-      // Clear any first-selected highlighting
-      document.querySelectorAll('.board-item.connect-first').forEach(el => {
-        el.classList.remove('connect-first');
-      });
-    }
+    connectMode=!connectMode; connectFirst=null;
+    var btn=document.getElementById('connect-mode-btn');
+    btn.textContent='🔗 Connect Mode: '+(connectMode?'ON':'OFF');
+    btn.classList.toggle('active',connectMode);
+    if (!connectMode)
+      document.querySelectorAll('.board-item.connect-first')
+              .forEach(function(e){e.classList.remove('connect-first');});
   }
 
   function handleConnectClick(id, el) {
     if (!connectFirst) {
-      connectFirst = id;
-      el.classList.add('connect-first');
+      connectFirst=id; el.classList.add('connect-first');
     } else {
-      if (connectFirst === id) {
-        el.classList.remove('connect-first');
-        connectFirst = null;
-        return;
-      }
-      // Create connection
-      const color = document.getElementById('yarn-color').value || '#ff3333';
-      const conn  = { id: uid(), fromId: connectFirst, toId: id, color };
-      connections.push(conn);
-      drawLines();
-      saveState();
-
-      // Clear first highlight
-      const firstEl = document.getElementById('bitem-' + connectFirst);
-      if (firstEl) firstEl.classList.remove('connect-first');
-      connectFirst = null;
+      if (connectFirst===id) { el.classList.remove('connect-first'); connectFirst=null; return; }
+      var color=document.getElementById('yarn-color').value||'#ff3333';
+      connections.push({id:uid(),fromId:connectFirst,toId:id,color});
+      drawLines(); saveState();
+      var fe=document.getElementById('bitem-'+connectFirst);
+      if (fe) fe.classList.remove('connect-first');
+      connectFirst=null;
     }
   }
 
-  // ── Clear lines ───────────────────────────────
   function clearConnections() {
     if (!connections.length) return;
     if (!confirm('Clear all connection lines?')) return;
-    connections = [];
-    drawLines();
-    saveState();
+    connections=[]; drawLines(); saveState();
   }
 
-  // ── Delete selected item ──────────────────────
   function deleteSelected() {
     if (!selectedId) { alert('Select an item first (click it).'); return; }
-    const el = document.getElementById('bitem-' + selectedId);
+    var el=document.getElementById('bitem-'+selectedId);
     if (el) el.remove();
-    items       = items.filter(i => i.id !== selectedId);
-    connections = connections.filter(c => c.fromId !== selectedId && c.toId !== selectedId);
-    selectedId  = null;
-    drawLines();
-    saveState();
+    items       = items.filter(function(i){return i.id!==selectedId;});
+    connections = connections.filter(function(c){return c.fromId!==selectedId&&c.toId!==selectedId;});
+    selectedId=null; drawLines(); saveState();
   }
 
-  // ── Click board background = deselect ─────────
-  function boardBgClick() {
-    if (selectedId) {
-      const el = document.getElementById('bitem-' + selectedId);
-      if (el) el.classList.remove('selected');
-      selectedId = null;
-    }
-  }
-
-  // ── Persist to IDB ────────────────────────────
   async function saveState() {
-    // Save item positions
-    const serializable = items.map(i => ({
-      id: i.id, type: i.type, url: i.url, label: i.label, x: i.x, y: i.y
-    }));
-    // Save per-user board state
-    const userId = DB.Prefs.get('empId');
-    if (userId) {
-      let userBoards = {};
-      try { userBoards = JSON.parse(localStorage.getItem('userBoards') || '{}'); } catch {}
-      userBoards[userId] = { items: serializable, connections };
-      localStorage.setItem('userBoards', JSON.stringify(userBoards));
-    }
-    await DB.put('boardItems', { id: 'state', items: serializable, connections });
+    var serializable = items.map(function(i) {
+      return {id:i.id,type:i.type,url:i.url,label:i.label,
+              x:i.x,y:i.y,collapsed:i.collapsed,meta:i.meta||defaultMeta()};
+    });
+    await DB.put('boardItems', {id:boardStateKey(), items:serializable, connections});
   }
 
   async function loadState() {
-    // Load per-user board state
-    const userId = DB.Prefs.get('empId');
-    let state = null;
-    // Clear board arrays before loading
-    items = [];
-    connections = [];
-    // Remove all board-item elements
-    if (board) {
-      board.querySelectorAll('.board-item').forEach(el => el.remove());
-    }
-    if (userId) {
-      let userBoards = {};
-      try { userBoards = JSON.parse(localStorage.getItem('userBoards') || '{}'); } catch {}
-      state = userBoards[userId] || null;
-    }
-    if (!state) {
-      state = await DB.get('boardItems', 'state');
-    }
+    var state = await DB.get('boardItems', boardStateKey());
     if (!state) return;
-    (state.items || []).forEach(item => {
+    (state.items||[]).forEach(function(item) {
+      if (!item.meta)                   item.meta = defaultMeta();
+      if (item.collapsed===undefined)   item.collapsed = true;
       items.push(item);
       renderItem(item);
     });
@@ -335,70 +338,21 @@ const CrimeBoard = (() => {
     drawLines();
   }
 
-  // ── Public: add image data URL to board ───────
-  function addPhoto(dataUrl, label) { addItem('photo', dataUrl, label || 'Photo'); }
-  function addVideo(url, label)     { addItem('video', url,    label || 'Video'); }
-  function addAudio(url, label)     { addItem('audio', url,    label || 'Audio'); }
+  function addPhoto(url,label) { addItem('photo',url,label||'Photo'); }
+  function addVideo(url,label) { addItem('video',url,label||'Video'); }
+  function addAudio(url,label) { addItem('audio',url,label||'Audio'); }
 
-  // ── Init ──────────────────────────────────────
-  async function init() {
-    board  = document.getElementById('crime-board');
-    canvas = document.getElementById('yarn-canvas');
-    ctx    = canvas.getContext('2d');
-
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-    board.addEventListener('click', boardBgClick);
-
-    document.getElementById('connect-mode-btn').addEventListener('click',   toggleConnectMode);
-    document.getElementById('clear-connections-btn').addEventListener('click', clearConnections);
-    document.getElementById('delete-selected-btn').addEventListener('click',   deleteSelected);
-
-    // Add media from interrogation to board
-    document.getElementById('add-to-board-btn').addEventListener('click', () => {
-      const pending = MediaCapture.getPending();
-      if (!pending.length) { alert('No captured media to add. Capture a photo, video, or audio first.'); return; }
-      pending.forEach(item => addItem(item.type, item.url, item.label));
-      MediaCapture.clearPending();
-      alert(`${pending.length} item(s) added to the Crime Board.`);
-    });
-
-    // Crime scene photo → board
-    document.getElementById('add-crime-scene-to-board').addEventListener('click', () => {
-      const selected = document.querySelector('#crime-scene-photos .selected-photo');
-      if (!selected) { alert('Click a crime scene photo to select it first.'); return; }
-      addPhoto(selected.src, 'Crime Scene');
-    });
-
-    // Evidence photo → board
-    document.getElementById('add-evidence-to-board').addEventListener('click', () => {
-      const selected = document.querySelector('#evidence-photos .selected-photo');
-      if (!selected) { alert('Click an evidence photo to select it first.'); return; }
-      addPhoto(selected.src, 'Evidence');
-    });
-
-    // Photo upload sections
-    setupPhotoSection('crime-scene-upload',  'crime-scene-photos');
-    setupPhotoSection('evidence-upload',     'evidence-photos');
-
-    await loadState();
-  }
-
-  // ── Photo upload section ──────────────────────
-  function setupPhotoSection(inputId, gridId) {
-    const input = document.getElementById(inputId);
-    const grid  = document.getElementById(gridId);
-    if (!input || !grid) return;
-
-    input.addEventListener('change', () => {
-      Array.from(input.files).forEach(file => {
+  function setupPhotoSection(inputId,gridId) {
+    var input=document.getElementById(inputId), grid=document.getElementById(gridId);
+    if (!input||!grid) return;
+    input.addEventListener('change', function() {
+      Array.from(input.files).forEach(function(file) {
         if (!file.type.startsWith('image/')) return;
-        const reader = new FileReader();
-        reader.onload = evt => {
-          const img = document.createElement('img');
-          img.src = evt.target.result;
-          img.addEventListener('click', () => {
-            grid.querySelectorAll('img').forEach(i => i.classList.remove('selected-photo'));
+        var reader=new FileReader();
+        reader.onload=function(evt) {
+          var img=document.createElement('img'); img.src=evt.target.result;
+          img.addEventListener('click',function(){
+            grid.querySelectorAll('img').forEach(function(i){i.classList.remove('selected-photo');});
             img.classList.add('selected-photo');
           });
           grid.appendChild(img);
@@ -406,6 +360,64 @@ const CrimeBoard = (() => {
         reader.readAsDataURL(file);
       });
     });
+  }
+
+  async function init() {
+    var boardOuter = document.getElementById('crime-board');
+    canvas         = document.getElementById('yarn-canvas');
+
+    // Build inner scrollable canvas
+    var inner = document.createElement('div');
+    inner.id = 'board-inner';
+    inner.style.cssText = 'position:relative;width:2400px;height:1600px;';
+    canvas.parentNode.removeChild(canvas);
+    canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1;';
+    inner.appendChild(canvas);
+    boardOuter.appendChild(inner);
+    board = inner;
+    ctx   = canvas.getContext('2d');
+
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+    boardOuter.addEventListener('click', function(e) {
+      if (e.target===boardOuter||e.target===inner||e.target===canvas) {
+        if (selectedId) {
+          var el=document.getElementById('bitem-'+selectedId);
+          if (el) el.classList.remove('selected');
+          selectedId=null;
+        }
+      }
+    });
+    boardOuter.addEventListener('scroll', drawLines);
+
+    document.getElementById('connect-mode-btn').addEventListener('click',      toggleConnectMode);
+    document.getElementById('clear-connections-btn').addEventListener('click', clearConnections);
+    document.getElementById('delete-selected-btn').addEventListener('click',   deleteSelected);
+
+    document.getElementById('add-to-board-btn').addEventListener('click', function() {
+      var pending=MediaCapture.getPending();
+      if (!pending.length) { alert('No captured media to add.'); return; }
+      pending.forEach(function(p){addItem(p.type,p.url,p.label);});
+      MediaCapture.clearPending();
+      alert(pending.length+' item(s) added to the Crime Board.');
+    });
+
+    document.getElementById('add-crime-scene-to-board').addEventListener('click', function() {
+      var sel=document.querySelector('#crime-scene-photos .selected-photo');
+      if (!sel) { alert('Click a crime scene photo to select it first.'); return; }
+      addPhoto(sel.src,'Crime Scene');
+    });
+
+    document.getElementById('add-evidence-to-board').addEventListener('click', function() {
+      var sel=document.querySelector('#evidence-photos .selected-photo');
+      if (!sel) { alert('Click an evidence photo to select it first.'); return; }
+      addPhoto(sel.src,'Evidence');
+    });
+
+    setupPhotoSection('crime-scene-upload','crime-scene-photos');
+    setupPhotoSection('evidence-upload','evidence-photos');
+
+    await loadState();
   }
 
   return { init, addPhoto, addVideo, addAudio, drawLines };

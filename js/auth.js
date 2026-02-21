@@ -1,28 +1,55 @@
 /* ═══════════════════════════════════════════════
    js/auth.js  —  Login / Logout / ID Card
-   - Double-click ID card = instant logout (no confirm)
-   - Badge photo persists after first upload
+   Per-user isolation. Photos persist per-account
+   and auto-migrate from legacy un-namespaced keys.
 ═══════════════════════════════════════════════ */
 
 const Auth = (() => {
 
-  // ── Helpers ──────────────────────────────────
+  function sanitize(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  }
+  function accountKey(uid) { return `__account__${uid}`; }
   function generateId() {
     return 'EMP-' + Date.now().toString().slice(-6) + '-' +
            Math.floor(Math.random() * 1000).toString().padStart(3, '0');
   }
-
   function getRank(solved) {
-    if (solved >= 15) return { label: 'Legend',           color: '#ffaa00' };
-    if (solved >= 8)  return { label: 'Master Sleuth',    color: '#ffd700' };
-    if (solved >= 3)  return { label: 'Inspector',        color: '#00aaff' };
-    return                   { label: 'Rookie',           color: '#888'    };
+    if (solved >= 15) return { label: 'Legend',        color: '#ffaa00' };
+    if (solved >= 8)  return { label: 'Master Sleuth', color: '#ffd700' };
+    if (solved >= 3)  return { label: 'Inspector',     color: '#00aaff' };
+    return                   { label: 'Rookie',        color: '#888'    };
   }
 
-  // ── Update visible ID card ────────────────────
+  // ── Photo helpers ─────────────────────────────
+
+  function _savePhoto(data) {
+    try { DB.Prefs.set('empPhoto', data); return true; }
+    catch (e) { console.warn('Badge photo could not be saved (storage quota full):', e); return false; }
+  }
+
+  // OLD code stored photo as plain "empPhoto" (no user prefix).
+  // If found there and the namespaced slot is empty, migrate it.
+  function _migratePhoto() {
+    if (DB.Prefs.get('empPhoto')) return;
+    const legacy = localStorage.getItem('empPhoto');
+    if (legacy) _savePhoto(legacy);
+  }
+
+  // Pull photo from global account record if namespaced pref is still empty.
+  function _restorePhotoFromAccount(aKey) {
+    if (DB.Prefs.get('empPhoto')) return;
+    try {
+      const acct = JSON.parse(localStorage.getItem(aKey) || '{}');
+      if (acct.photo) _savePhoto(acct.photo);
+    } catch {}
+  }
+
+  // ── ID card ───────────────────────────────────
+
   function refreshCard() {
     const name   = DB.Prefs.get('empName')  || 'Not logged in';
-    const id     = DB.Prefs.get('empId')    || 'ID: --';
+    const id     = DB.Prefs.get('empId')    || '--';
     const photo  = DB.Prefs.get('empPhoto') || '';
     const solved = parseInt(DB.Prefs.get('casesSolved') || '0', 10);
     const rank   = getRank(solved);
@@ -31,33 +58,31 @@ const Auth = (() => {
     document.getElementById('employee-id').textContent   = 'ID: ' + id;
 
     const rankEl = document.getElementById('detective-rank');
-    rankEl.textContent = 'Rank: ' + rank.label;
+    rankEl.textContent       = 'Rank: ' + rank.label;
     rankEl.style.borderColor = rank.color;
-    rankEl.style.color        = rank.color;
+    rankEl.style.color       = rank.color;
 
     const photoEl = document.getElementById('employee-photo');
+    photoEl.style.display = 'block';
     if (photo) {
-      photoEl.src = photo;
-      photoEl.style.display = 'block';
+      photoEl.src     = photo;
+      photoEl.onerror = () => { photoEl.src = ''; };
     } else {
       photoEl.src = '';
-      photoEl.style.display = 'block';
-      photoEl.style.background = '#333';
     }
 
-    // Mirror detective id into case section
     const caseIdEl = document.getElementById('case-employee-id');
     if (caseIdEl) caseIdEl.textContent = id;
   }
 
-  // ── Update score card ─────────────────────────
+  // ── Score card ────────────────────────────────
+
   function refreshScores() {
     document.getElementById('cases-taken').textContent  = DB.Prefs.get('casesTaken')  || '0';
     document.getElementById('cases-open').textContent   = DB.Prefs.get('casesOpen')   || '0';
     document.getElementById('cases-solved').textContent = DB.Prefs.get('casesSolved') || '0';
   }
 
-  // ── Show / hide main app ──────────────────────
   function showApp() {
     document.getElementById('login-modal').style.display = 'none';
     document.getElementById('app-main').style.display    = '';
@@ -68,97 +93,108 @@ const Auth = (() => {
   function hideApp() {
     document.getElementById('app-main').style.display    = 'none';
     document.getElementById('login-modal').style.display = 'flex';
-    // Clear form
-    document.getElementById('login-name').value     = '';
-    document.getElementById('login-password').value = '';
+    document.getElementById('login-name').value          = '';
+    document.getElementById('login-password').value      = '';
     document.getElementById('login-photo-preview').innerHTML = '';
-    // Clear file input (photo)
-    const photoInput = document.getElementById('login-photo');
-    if (photoInput) photoInput.value = '';
   }
 
-  // ── Check if already logged in ────────────────
+  // ── Session restore on page load ──────────────
+
   function checkSession() {
-    const name = DB.Prefs.get('empName');
-    const id   = DB.Prefs.get('empId');
-    if (name && id) {
-      showApp();
-    } else {
-      hideApp();
-    }
+    const uid = localStorage.getItem('__currentUser__');
+    if (!uid) { hideApp(); return; }
+
+    const aKey    = accountKey(uid);
+    const acctRaw = localStorage.getItem(aKey);
+    if (!acctRaw) { hideApp(); return; }
+
+    // Set namespace FIRST — every Prefs call after this is scoped to uid
+    DB.setCurrentUser(uid);
+
+    try {
+      const acct = JSON.parse(acctRaw);
+      if (!DB.Prefs.get('empId')   && acct.id)   DB.Prefs.set('empId',   acct.id);
+      if (!DB.Prefs.get('empName') && acct.name) DB.Prefs.set('empName', acct.name);
+    } catch {}
+
+    _migratePhoto();
+    _restorePhotoFromAccount(aKey);
+    showApp();
   }
 
-  // ── Logout ────────────────────────────────────
   function logout() {
-    DB.Prefs.del('empName');
-    DB.Prefs.del('empId');
-    // Note: we deliberately keep empPhoto and empPassword
-    // so they don't have to re-upload their photo on next login
+    localStorage.removeItem('__currentUser__');
+    DB.setCurrentUser(null);
     hideApp();
   }
 
+  function _finalizeLogin(uid, displayName, empId, aKey, photoData) {
+    DB.Prefs.set('empName', displayName);
+    DB.Prefs.set('empId',   empId);
+    if (photoData) {
+      _savePhoto(photoData);
+      try {
+        const acct = JSON.parse(localStorage.getItem(aKey) || '{}');
+        acct.photo = photoData;
+        acct.name  = displayName;
+        localStorage.setItem(aKey, JSON.stringify(acct));
+      } catch {}
+    }
+    showApp();
+  }
+
   // ── Init ──────────────────────────────────────
+
   function init() {
-    // Login form submit
+
     document.getElementById('login-form').addEventListener('submit', async e => {
       e.preventDefault();
-      const name     = document.getElementById('login-name').value.trim();
-      const password = document.getElementById('login-password').value;
-      const photoInput = document.getElementById('login-photo');
+      const displayName = document.getElementById('login-name').value.trim();
+      const password    = document.getElementById('login-password').value;
+      const photoInput  = document.getElementById('login-photo');
 
-      if (!name || !password) {
-        alert('Please enter your name and password.');
-        return;
+      if (!displayName || !password) { alert('Please enter your name and password.'); return; }
+
+      const uid     = sanitize(displayName);
+      const aKey    = accountKey(uid);
+      const acctRaw = localStorage.getItem(aKey);
+      let empId;
+
+      if (acctRaw) {
+        let acct;
+        try { acct = JSON.parse(acctRaw); }
+        catch { alert('Account data corrupted.'); return; }
+
+        if (acct.password !== password) { alert('Incorrect password. Please try again.'); return; }
+
+        empId = acct.id;
+        DB.setCurrentUser(uid);
+        localStorage.setItem('__currentUser__', uid);
+
+        if (!DB.Prefs.get('empId'))   DB.Prefs.set('empId',   empId);
+        if (!DB.Prefs.get('empName')) DB.Prefs.set('empName', displayName);
+
+        _migratePhoto();
+        _restorePhotoFromAccount(aKey);
+
+      } else {
+        empId = generateId();
+        localStorage.setItem(aKey, JSON.stringify({ id: empId, password, name: displayName }));
+        DB.setCurrentUser(uid);
+        localStorage.setItem('__currentUser__', uid);
+        DB.Prefs.set('empId',   empId);
+        DB.Prefs.set('empName', displayName);
       }
 
-      // Load user map from localStorage
-      let userMap = {};
-      try { userMap = JSON.parse(localStorage.getItem('userMap') || '{}'); } catch {}
-      let user = userMap[name];
-
-      if (user) {
-        // User exists, check credentials
-        if (user.password !== password) {
-          alert('Incorrect name or password.');
-          return;
-        }
-        // Credentials match, set session
-        DB.Prefs.set('empId', user.id);
-        DB.Prefs.set('empName', name);
-        DB.Prefs.set('empPassword', password);
-        DB.Prefs.set('empPhoto', user.photo || '');
-        showApp();
+      if (photoInput.files && photoInput.files[0]) {
+        const reader = new FileReader();
+        reader.onload = evt => _finalizeLogin(uid, displayName, empId, aKey, evt.target.result);
+        reader.readAsDataURL(photoInput.files[0]);
       } else {
-        // New user registration
-        const id = generateId();
-        let photoData = '';
-        if (photoInput.files && photoInput.files[0]) {
-          const reader = new FileReader();
-          reader.onload = evt => {
-            photoData = evt.target.result;
-            userMap[name] = { id, password, photo: photoData };
-            localStorage.setItem('userMap', JSON.stringify(userMap));
-            DB.Prefs.set('empId', id);
-            DB.Prefs.set('empName', name);
-            DB.Prefs.set('empPassword', password);
-            DB.Prefs.set('empPhoto', photoData);
-            showApp();
-          };
-          reader.readAsDataURL(photoInput.files[0]);
-          return;
-        }
-        // No photo uploaded
-        userMap[name] = { id, password, photo: '' };
-        localStorage.setItem('userMap', JSON.stringify(userMap));
-        DB.Prefs.set('empId', id);
-        DB.Prefs.set('empName', name);
-        DB.Prefs.set('empPassword', password);
-        DB.Prefs.set('empPhoto', '');
-        showApp();
+        _finalizeLogin(uid, displayName, empId, aKey, null);
       }
     });
 
-    // Login photo preview
     document.getElementById('login-photo').addEventListener('change', function () {
       const preview = document.getElementById('login-photo-preview');
       if (this.files && this.files[0]) {
@@ -171,12 +207,7 @@ const Auth = (() => {
       }
     });
 
-    // Double-click ID card = instant logout
-    document.getElementById('employee-id-card').addEventListener('dblclick', () => {
-      logout();
-    });
-
-    // Check existing session
+    document.getElementById('employee-id-card').addEventListener('dblclick', logout);
     checkSession();
   }
 
